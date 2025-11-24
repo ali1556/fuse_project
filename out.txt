@@ -1,0 +1,115 @@
+=== FUSE File System Manual Test ===
+Starting FUSE file system...
+File system started with PID: 2797
+DEBUG: Program started
+DEBUG: Arguments: disk_file=my_disk.bin, mount_point=/home/al1nr/my_mount
+DEBUG: State allocated at 0x5cd2ece442b0
+DEBUG: Disk file exists, opening...
+DEBUG: Opening existing disk...
+DEBUG: File opened with fd: 3
+DEBUG: Memory mapping successful at 0x760d86c00000
+DEBUG: Superblock at 0x760d86c00000
+DEBUG: File table at 0x760d86c01000
+General FS mounted successfully
+Files: 0, Free blocks: 24599
+DEBUG: Starting FUSE main...
+Starting General FUSE filesystem...
+Disk file: my_disk.bin
+Mount point: /home/al1nr/my_mount
+DEBUG: FUSE main returned: 4
+DEBUG: Closing disk...
+DEBUG: Memory unmapped
+DEBUG: File closed
+
+=== Basic File Operations ===
+Test 1: Creating file1.txt
+Test 2: Reading file1.txt
+Content:
+Hello FUSE File System
+Test 3: Appending to file1.txt
+Updated content:
+Hello FUSE File System
+This is additional content
+Test 4: Creating multiple files
+
+=== File Listing ===
+Current directory contents:
+total 4116
+drwxrwxr-x  4 al1nr al1nr      4096 Nov 24 16:03 .
+drwxr-x--- 15 al1nr al1nr      4096 Nov 24 15:19 ..
+-rw-rw-r--  1 al1nr al1nr        50 Nov 24 16:03 file1.txt
+-rw-rw-r--  1 al1nr al1nr        15 Nov 24 16:03 file2.txt
+-rw-rw-r--  1 al1nr al1nr        15 Nov 24 16:03 file3.txt
+-rw-rw-r--  1 al1nr al1nr      8360 Nov 24 15:19 fs_operations.c
+-rwxrwxr-x  1 al1nr al1nr     43760 Nov 24 15:20 general_fs
+-rw-rw-r--  1 al1nr al1nr         0 Nov 24 15:19 general_fs.c
+-rw-rw-r--  1 al1nr al1nr      2621 Nov 24 15:19 general_fs.h
+drwxrwxr-x  8 al1nr al1nr      4096 Nov 24 15:19 .git
+-rw-rw-r--  1 al1nr al1nr      6324 Nov 24 15:19 main.c
+-rw-rw-r--  1 al1nr al1nr       374 Nov 24 15:19 Makefile
+-rw-r--r--  1 al1nr al1nr 104857600 Nov 24 15:20 my_disk.bin
+-rw-rw-r--  1 al1nr al1nr       737 Nov 24 15:21 output.txt
+-rw-rw-r--  1 al1nr al1nr      1033 Nov 24 16:03 out.txt
+-rwxrwxr-x  1 al1nr al1nr      2448 Nov 24 15:19 test_fuse.sh
+drwxrwxr-x  2 al1nr al1nr      4096 Nov 24 15:19 .vscode
+
+=== File Shrink Test ===
+Test 5: Creating large file for shrink test
+Original file size:
+451 bytes
+Shrinking file to 50 bytes...
+New file size:
+50 bytes
+Content after shrink:
+This is line number 1
+This is line number 2
+This i
+=== File Statistics ===
+Test 6: File stats for file1.txt
+  File: file1.txt
+  Size: 50        	Blocks: 8          IO Block: 4096   regular file
+Device: 252,0	Inode: 331725      Links: 1
+Access: (0664/-rw-rw-r--)  Uid: ( 1000/   al1nr)   Gid: ( 1000/   al1nr)
+Access: 2025-11-24 16:03:12.370765407 +0000
+Modify: 2025-11-24 16:03:12.350765370 +0000
+Change: 2025-11-24 16:03:12.350765370 +0000
+ Birth: 2025-11-24 16:03:12.309765292 +0000
+
+=== System Statistics ===
+Test 7: File system usage
+
+=== File Deletion ===
+Test 8: Deleting test files
+Files after deletion:
+total 4104
+drwxrwxr-x  4 al1nr al1nr      4096 Nov 24 16:03 .
+drwxr-x--- 15 al1nr al1nr      4096 Nov 24 15:19 ..
+-rw-rw-r--  1 al1nr al1nr      8360 Nov 24 15:19 fs_operations.c
+-rwxrwxr-x  1 al1nr al1nr     43760 Nov 24 15:20 general_fs
+-rw-rw-r--  1 al1nr al1nr         0 Nov 24 15:19 general_fs.c
+-rw-rw-r--  1 al1nr al1nr      2621 Nov 24 15:19 general_fs.h
+drwxrwxr-x  8 al1nr al1nr      4096 Nov 24 15:19 .git
+-rw-rw-r--  1 al1nr al1nr      6324 Nov 24 15:19 main.c
+-rw-rw-r--  1 al1nr al1nr       374 Nov 24 15:19 Makefile
+-rw-r--r--  1 al1nr al1nr 104857600 Nov 24 15:20 my_disk.bin
+-rw-rw-r--  1 al1nr al1nr       737 Nov 24 15:21 output.txt
+-rw-rw-r--  1 al1nr al1nr      2825 Nov 24 16:03 out.txt
+-rwxrwxr-x  1 al1nr al1nr      2448 Nov 24 15:19 test_fuse.sh
+drwxrwxr-x  2 al1nr al1nr      4096 Nov 24 15:19 .vscode
+
+=== Advanced Tests ===
+Test 9: Binary file test
+Binary file copied and made executable
+-rwxr-xr-x 1 al1nr al1nr 142312 Nov 24 16:03 copied_ls
+Test 10: Directory operations
+Directory created
+drwxrwxr-x  2 al1nr al1nr      4096 Nov 24 16:03 test_dir
+
+=== Final System Status ===
+Total files in system:
+12
+Disk usage:
+
+=== Cleaning up ===
+Stopping FUSE file system...
+=== Test completed successfully ===
