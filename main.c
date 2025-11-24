@@ -2,19 +2,24 @@
 #include <signal.h>
 #include <execinfo.h>
 
+// Global state variable
+struct fs_state *fs_global_state = NULL;
+
 void signal_handler(int sig) {
     void *array[10];
     size_t size;
 
     printf("\n=== Segmentation Fault Occurred ===\n");
     
-    // get void*'s for all entries on the stack
     size = backtrace(array, 10);
-
-    // print out all the frames to stderr
     fprintf(stderr, "Error: signal %d:\n", sig);
     backtrace_symbols_fd(array, size, STDERR_FILENO);
     exit(1);
+}
+
+// تابع برای دسترسی به state از توابع FUSE
+struct fs_state *get_fs_state() {
+    return fs_global_state;
 }
 
 // عملیات‌های FUSE
@@ -141,25 +146,25 @@ int main(int argc, char *argv[]) {
     
     printf("DEBUG: Arguments: disk_file=%s, mount_point=%s\n", argv[1], argv[2]);
     
-    struct fs_state *state = calloc(1, sizeof(struct fs_state));
-    if (!state) {
+    fs_global_state = calloc(1, sizeof(struct fs_state));
+    if (!fs_global_state) {
         perror("Failed to allocate state");
         return 1;
     }
-    printf("DEBUG: State allocated at %p\n", state);
+    printf("DEBUG: State allocated at %p\n", fs_global_state);
     
-    state->disk_file = argv[1];
+    fs_global_state->disk_file = argv[1];
     
-    if (access(state->disk_file, F_OK) == 0) {
+    if (access(fs_global_state->disk_file, F_OK) == 0) {
         printf("DEBUG: Disk file exists, opening...\n");
-        if (fs_disk_open(state->disk_file, state) != 0) {
-            free(state);
+        if (fs_disk_open(fs_global_state->disk_file, fs_global_state) != 0) {
+            free(fs_global_state);
             return 1;
         }
     } else {
         printf("DEBUG: Disk file doesn't exist, creating...\n");
-        if (fs_disk_init(state->disk_file, state) != 0) {
-            free(state);
+        if (fs_disk_init(fs_global_state->disk_file, fs_global_state) != 0) {
+            free(fs_global_state);
             return 1;
         }
     }
@@ -180,14 +185,14 @@ int main(int argc, char *argv[]) {
     
     printf("DEBUG: Starting FUSE main...\n");
     printf("Starting General FUSE filesystem...\n");
-    printf("Disk file: %s\n", state->disk_file);
+    printf("Disk file: %s\n", fs_global_state->disk_file);
     printf("Mount point: %s\n", argv[2]);
     
-    int ret = fuse_main(fuse_argc, fuse_argv, &fs_oper, state);
+    int ret = fuse_main(fuse_argc, fuse_argv, &fs_oper, NULL);
     
     printf("DEBUG: FUSE main returned: %d\n", ret);
-    fs_disk_close(state);
-    free(state);
+    fs_disk_close(fs_global_state);
+    free(fs_global_state);
     
     return ret;
 }

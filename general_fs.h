@@ -57,17 +57,15 @@ struct fs_state {
     file_entry_t *file_table;
 };
 
-#define FS_DATA ((struct fs_state *)fuse_get_context()->private_data)
-
 // توابع مدیریت دیسک
-int fs_disk_init(const char *disk_file);
-int fs_disk_open(const char *disk_file);
-void fs_disk_close(void);
+int fs_disk_init(const char *disk_file, struct fs_state *state);
+int fs_disk_open(const char *disk_file, struct fs_state *state);
+void fs_disk_close(struct fs_state *state);
 
 // توابع مدیریت فایل
-file_entry_t *fs_find_file(const char *path);
-int fs_create_file(const char *path, mode_t mode, uint32_t type);
-int fs_resize_file(file_entry_t *entry, uint32_t new_size);
+file_entry_t *fs_find_file(const char *path, struct fs_state *state);
+int fs_create_file(const char *path, mode_t mode, uint32_t type, struct fs_state *state);
+int fs_resize_file(file_entry_t *entry, uint32_t new_size, struct fs_state *state);
 
 // توابع FUSE
 int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi);
