@@ -1,76 +1,112 @@
 #!/bin/bash
 
-echo "=== شروع تست سیستم فایل FUSE ==="
+echo "=== FUSE File System Manual Test ==="
 
-# 1. به پوشه پروژه برو
+# Start the file system in background
 cd ~/fuse_project
-
-echo "1. در حال اجرای سیستم فایل در background..."
+echo "Starting FUSE file system..."
 ./general_fs my_disk.bin ~/my_mount -f &
 FS_PID=$!
-echo "   Process ID: $FS_PID"
+echo "File system started with PID: $FS_PID"
 
-# صبر کن سیستم فایل کامل بالا بیاد
-sleep 2
+# Wait for file system to fully start
+sleep 3
 
-# 2. به پوشه mount شده برو
+# Change to mount point and run tests
 cd ~/my_mount
 
-echo "2. تست ایجاد فایل..."
-echo "این اولین تست منه" > test1.txt
-echo "   فایل test1.txt ایجاد شد"
+echo ""
+echo "=== Basic File Operations ==="
 
-echo "3. تست خواندن فایل..."
-echo "   محتوای test1.txt:"
-cat test1.txt
+# Test 1: Create file (open with CREATE)
+echo "Test 1: Creating file1.txt"
+echo "Hello FUSE File System" > file1.txt
 
-echo "4. تست نوشتن اضافی..."
-echo "خط دوم" >> test1.txt
-echo "   محتوای بعد از append:"
-cat test1.txt
+# Test 2: Read file
+echo "Test 2: Reading file1.txt"
+echo "Content:"
+cat file1.txt
 
-echo "5. تست ایجاد فایل‌های بیشتر..."
-echo "فایل تست دوم" > file2.txt
-echo "فایل تست سوم" > file3.txt
+# Test 3: Append to file (write)
+echo "Test 3: Appending to file1.txt"
+echo "This is additional content" >> file1.txt
+echo "Updated content:"
+cat file1.txt
 
-echo "6. تست لیست فایل‌ها..."
+# Test 4: Create multiple files
+echo "Test 4: Creating multiple files"
+echo "File 2 content" > file2.txt
+echo "File 3 content" > file3.txt
+
+echo ""
+echo "=== File Listing ==="
+echo "Current directory contents:"
 ls -la
 
-echo "7. تست shrink (کاهش سایز فایل)..."
-# ایجاد فایل بزرگ
-for i in {1..50}; do
-    echo "این خط شماره $i است" >> large_file.txt
+echo ""
+echo "=== File Shrink Test ==="
+# Create a larger file
+echo "Test 5: Creating large file for shrink test"
+for i in {1..20}; do
+    echo "This is line number $i" >> large_file.txt
 done
-echo "   سایز اولیه large_file.txt:"
+echo "Original file size:"
 ls -l large_file.txt | awk '{print $5 " bytes"}'
 
-# کاهش سایز
-truncate -s 100 large_file.txt
-echo "   سایز بعد از shrink:"
+# Shrink the file
+echo "Shrinking file to 50 bytes..."
+truncate -s 50 large_file.txt
+echo "New file size:"
 ls -l large_file.txt | awk '{print $5 " bytes"}'
-echo "   محتوای بعد از shrink:"
+echo "Content after shrink:"
 cat large_file.txt
 
-echo "8. تست آمار فایل (get_file_stats)..."
-echo "   آمار test1.txt:"
-stat test1.txt
+echo ""
+echo "=== File Statistics ==="
+echo "Test 6: File stats for file1.txt"
+stat file1.txt
 
-echo "9. تست آمار سیستم (get_stats)..."
-echo "   فضای استفاده شده:"
+echo ""
+echo "=== System Statistics ==="
+echo "Test 7: File system usage"
 df -h ~/my_mount | grep my_mount
 
-echo "10. تست حذف فایل..."
-rm test1.txt file2.txt file3.txt large_file.txt
-echo "   فایل‌ها حذف شدند"
-echo "   لیست نهایی:"
+echo ""
+echo "=== File Deletion ==="
+echo "Test 8: Deleting test files"
+rm file1.txt file2.txt file3.txt large_file.txt
+echo "Files after deletion:"
 ls -la
 
-echo "11. متوقف کردن سیستم فایل..."
-# برگرد به پوشه پروژه
-cd ~/fuse_project
+echo ""
+echo "=== Advanced Tests ==="
+echo "Test 9: Binary file test"
+cp /bin/ls ./copied_ls
+chmod +x ./copied_ls
+echo "Binary file copied and made executable"
+ls -l copied_ls
 
-# سیستم فایل رو متوقف کن
+echo "Test 10: Directory operations"
+mkdir test_dir
+echo "Directory created"
+ls -la | grep test_dir
+
+echo ""
+echo "=== Final System Status ==="
+echo "Total files in system:"
+ls -1 | wc -l
+echo "Disk usage:"
+df -h ~/my_mount | grep my_mount
+
+echo ""
+echo "=== Cleaning up ==="
+rm -f copied_ls
+rmdir test_dir
+
+# Stop the file system
+echo "Stopping FUSE file system..."
+cd ~/fuse_project
 kill $FS_PID
 wait $FS_PID 2>/dev/null
 
-echo "=== تست کامل شد ==="
+echo "=== Test completed successfully ==="
