@@ -1,9 +1,9 @@
 #ifndef GENERAL_FS_H
 #define GENERAL_FS_H
 
-// استفاده از FUSE معمولی به جای FUSE3
-#define FUSE_USE_VERSION 26
-#include <fuse.h>
+#define FUSE_USE_VERSION 31
+
+#include <fuse3/fuse.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <errno.h>
 #include <time.h>
 
@@ -41,9 +42,9 @@ typedef struct {
     uint32_t data_blocks;
     uint32_t uid;
     uint32_t gid;
-    uint32_t atime;         // access time
-    uint32_t mtime;         // modification time  
-    uint32_t ctime;         // creation time
+    uint32_t atime;
+    uint32_t mtime;
+    uint32_t ctime;
     uint8_t padding[BLOCK_SIZE - (MAX_FILENAME + 40)];
 } file_entry_t;
 
@@ -56,7 +57,29 @@ struct fs_state {
     file_entry_t *file_table;
 };
 
-// ماکرو برای دسترسی به state
-extern struct fs_state *fs_state_global;
+#define FS_DATA ((struct fs_state *)fuse_get_context()->private_data)
+
+// توابع مدیریت دیسک
+int fs_disk_init(const char *disk_file);
+int fs_disk_open(const char *disk_file);
+void fs_disk_close(void);
+
+// توابع مدیریت فایل
+file_entry_t *fs_find_file(const char *path);
+int fs_create_file(const char *path, mode_t mode, uint32_t type);
+int fs_resize_file(file_entry_t *entry, uint32_t new_size);
+
+// توابع FUSE
+int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi);
+int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags);
+int fs_open(const char *path, struct fuse_file_info *fi);
+int fs_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi);
+int fs_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi);
+int fs_create(const char *path, mode_t mode, struct fuse_file_info *fi);
+int fs_unlink(const char *path);
+int fs_truncate(const char *path, off_t size, struct fuse_file_info *fi);
+int fs_utimens(const char *path, const struct timespec tv[2], struct fuse_file_info *fi);
+int fs_mkdir(const char *path, mode_t mode);
+int fs_rmdir(const char *path);
 
 #endif

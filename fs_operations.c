@@ -3,11 +3,10 @@
 // پیدا کردن فایل بر اساس مسیر
 file_entry_t *fs_find_file(const char *path) {
     if (strcmp(path, "/") == 0) {
-        // پوشه ریشه
         static file_entry_t root_dir;
         memset(&root_dir, 0, sizeof(root_dir));
         strcpy(root_dir.name, "/");
-        root_dir.type = 1; // directory
+        root_dir.type = 1;
         root_dir.permissions = 0755;
         root_dir.size = BLOCK_SIZE;
         root_dir.uid = getuid();
@@ -16,7 +15,6 @@ file_entry_t *fs_find_file(const char *path) {
         return &root_dir;
     }
 
-    // حذف / از اول مسیر
     const char *filename = path + 1;
     
     for (int i = 0; i < FS_DATA->superblock->file_count; i++) {
@@ -34,16 +32,14 @@ int fs_create_file(const char *path, mode_t mode, uint32_t type) {
         return -ENOSPC;
     }
 
-    const char *filename = path + 1; // حذف /
+    const char *filename = path + 1;
     
-    // بررسی وجود فایل
     if (fs_find_file(path) != NULL) {
         return -EEXIST;
     }
 
     file_entry_t *entry = &FS_DATA->file_table[FS_DATA->superblock->file_count];
     
-    // پر کردن اطلاعات فایل
     strncpy(entry->name, filename, MAX_FILENAME - 1);
     entry->type = type;
     entry->permissions = mode;
@@ -67,13 +63,11 @@ int fs_resize_file(file_entry_t *entry, uint32_t new_size) {
     uint32_t new_blocks = (new_size + BLOCK_SIZE - 1) / BLOCK_SIZE;
     
     if (new_blocks > old_blocks) {
-        // نیاز به فضای بیشتر
         uint32_t required_space = entry->data_offset + (new_blocks * BLOCK_SIZE);
         if (required_space > FS_SIZE) {
             return -ENOSPC;
         }
         
-        // آپدیت last_used_byte اگر لازم باشد
         if (required_space > FS_DATA->superblock->last_used_byte) {
             FS_DATA->superblock->last_used_byte = required_space;
         }
@@ -108,10 +102,10 @@ int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi) 
     stbuf->st_blocks = entry->data_blocks;
     stbuf->st_blksize = BLOCK_SIZE;
     
-    if (entry->type == 1) { // directory
+    if (entry->type == 1) {
         stbuf->st_mode |= S_IFDIR;
         stbuf->st_nlink = 2;
-    } else { // regular file
+    } else {
         stbuf->st_mode |= S_IFREG;
         stbuf->st_nlink = 1;
     }
@@ -120,7 +114,7 @@ int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi) 
 }
 
 int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-                   off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
+               off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags) {
     (void) offset;
     (void) fi;
     (void) flags;
@@ -128,7 +122,6 @@ int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     filler(buf, ".", NULL, 0, 0);
     filler(buf, "..", NULL, 0, 0);
 
-    // فقط برای پوشه ریشه
     if (strcmp(path, "/") == 0) {
         for (int i = 0; i < FS_DATA->superblock->file_count; i++) {
             filler(buf, FS_DATA->file_table[i].name, NULL, 0, 0);
@@ -144,19 +137,16 @@ int fs_open(const char *path, struct fuse_file_info *fi) {
         return -ENOENT;
     }
     
-    // برای دایرکتوری‌ها، open مجاز نیست
     if (entry->type == 1 && (fi->flags & O_ACCMODE) != O_RDONLY) {
         return -EISDIR;
     }
     
-    // آپدیت زمان دسترسی
     entry->atime = time(NULL);
-    
     return 0;
 }
 
 int fs_read(const char *path, char *buf, size_t size, off_t offset,
-                struct fuse_file_info *fi) {
+            struct fuse_file_info *fi) {
     (void) fi;
     
     file_entry_t *entry = fs_find_file(path);
@@ -172,18 +162,15 @@ int fs_read(const char *path, char *buf, size_t size, off_t offset,
         size = entry->size - offset;
     }
     
-    // کپی داده از دیسک
     char *data_ptr = (char *)FS_DATA->data + entry->data_offset + offset;
     memcpy(buf, data_ptr, size);
     
-    // آپدیت زمان دسترسی
     entry->atime = time(NULL);
-    
     return size;
 }
 
 int fs_write(const char *path, const char *buf, size_t size, off_t offset,
-                 struct fuse_file_info *fi) {
+             struct fuse_file_info *fi) {
     (void) fi;
     
     file_entry_t *entry = fs_find_file(path);
@@ -191,12 +178,10 @@ int fs_write(const char *path, const char *buf, size_t size, off_t offset,
         return -ENOENT;
     }
     
-    // برای دایرکتوری‌ها، write مجاز نیست
     if (entry->type == 1) {
         return -EISDIR;
     }
     
-    // محاسبه سایز جدید
     size_t new_size = offset + size;
     if (new_size > entry->size) {
         int res = fs_resize_file(entry, new_size);
@@ -205,18 +190,15 @@ int fs_write(const char *path, const char *buf, size_t size, off_t offset,
         }
     }
     
-    // کپی داده به دیسک
     char *data_ptr = (char *)FS_DATA->data + entry->data_offset + offset;
     memcpy(data_ptr, buf, size);
     
-    // آپدیت زمان modification
     entry->mtime = time(NULL);
-    
     return size;
 }
 
 int fs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
-    int res = fs_create_file(path, mode, 0); // 0 = regular file
+    int res = fs_create_file(path, mode, 0);
     if (res < 0) {
         return res;
     }
@@ -225,7 +207,7 @@ int fs_create(const char *path, mode_t mode, struct fuse_file_info *fi) {
 }
 
 int fs_mkdir(const char *path, mode_t mode) {
-    return fs_create_file(path, mode | S_IFDIR, 1); // 1 = directory
+    return fs_create_file(path, mode | S_IFDIR, 1);
 }
 
 int fs_unlink(const char *path) {
@@ -235,12 +217,10 @@ int fs_unlink(const char *path) {
     
     for (int i = 0; i < count; i++) {
         if (strcmp(table[i].name, filename) == 0) {
-            // فقط فایل‌های معمولی قابل حذف هستند
             if (table[i].type == 1) {
                 return -EISDIR;
             }
             
-            // حذف فایل با جابجایی بقیه عناصر
             memmove(&table[i], &table[i + 1], (count - i - 1) * sizeof(file_entry_t));
             FS_DATA->superblock->file_count--;
             
@@ -259,7 +239,6 @@ int fs_rmdir(const char *path) {
     
     for (int i = 0; i < count; i++) {
         if (strcmp(table[i].name, dirname) == 0 && table[i].type == 1) {
-            // حذف دایرکتوری
             memmove(&table[i], &table[i + 1], (count - i - 1) * sizeof(file_entry_t));
             FS_DATA->superblock->file_count--;
             
@@ -279,7 +258,6 @@ int fs_truncate(const char *path, off_t size, struct fuse_file_info *fi) {
         return -ENOENT;
     }
     
-    // برای دایرکتوری‌ها، truncate مجاز نیست
     if (entry->type == 1) {
         return -EISDIR;
     }
