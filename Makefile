@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -std=gnu99 -D_FILE_OFFSET_BITS=64 -g
+CFLAGS = -Wall -Wextra -std=gnu99 -D_FILE_OFFSET_BITS=64 -g -rdynamic
 LIBS = -lfuse3
 TARGET = general_fs
 SOURCES = main.c fs_operations.c
