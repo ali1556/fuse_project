@@ -95,4 +95,9 @@ int fs_utimens(const char *path, const struct timespec tv[2], struct fuse_file_i
 int fs_mkdir(const char *path, mode_t mode);
 int fs_rmdir(const char *path);
 
+struct fs_state *get_fs_state(void);
+void fs_init_free_list(struct fs_state *state);
+void fs_print_free_list(struct fs_state *state);
+void fs_visualize_free_space(struct fs_state *state);
+
 #endif

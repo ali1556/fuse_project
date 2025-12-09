@@ -5,6 +5,10 @@
 // Global state variable
 struct fs_state *fs_global_state = NULL;
 
+struct fs_state *get_fs_state() {
+    return fs_global_state;
+}
+
 void signal_handler(int sig) {
     void *array[10];
     size_t size;
@@ -17,10 +21,6 @@ void signal_handler(int sig) {
     exit(1);
 }
 
-// تابع برای دسترسی به state از توابع FUSE
-struct fs_state *get_fs_state() {
-    return fs_global_state;
-}
 
 // عملیات‌های FUSE
 static struct fuse_operations fs_oper = {
