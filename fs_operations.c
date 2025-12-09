@@ -44,14 +44,26 @@ int fs_create_file(const char *path, mode_t mode, uint32_t type, struct fs_state
     entry->type = type;
     entry->permissions = mode;
     entry->size = 0;
-    entry->data_offset = state->superblock->last_used_byte;
-    entry->data_blocks = 0;
     entry->uid = getuid();
     entry->gid = getgid();
     entry->atime = entry->mtime = entry->ctime = time(NULL);
     
+    // اگر فایل معمولی است، فضایی برای آن اختصاص می‌دهیم
+    if (type == 0) {
+        // فایل‌های معمولی حداقل یک بلوک نیاز دارند
+        uint32_t start_block;
+        if (fs_alloc_blocks(1, state, &start_block) < 0) {
+            return -ENOSPC;
+        }
+        entry->data_offset = start_block * BLOCK_SIZE;
+        entry->data_blocks = 1;
+    } else {
+        // دایرکتوری‌ها فضای داده ندارند
+        entry->data_offset = 0;
+        entry->data_blocks = 0;
+    }
+    
     state->superblock->file_count++;
-    state->superblock->last_used_byte += BLOCK_SIZE;
     
     printf("Created new %s: %s\n", (type == 1) ? "directory" : "file", filename);
     return 0;
@@ -59,18 +71,63 @@ int fs_create_file(const char *path, mode_t mode, uint32_t type, struct fs_state
 
 // تغییر سایز فایل
 int fs_resize_file(file_entry_t *entry, uint32_t new_size, struct fs_state *state) {
+    if (!entry || !state) return -EINVAL;
+    
     uint32_t old_blocks = entry->data_blocks;
     uint32_t new_blocks = (new_size + BLOCK_SIZE - 1) / BLOCK_SIZE;
     
+    printf("Resizing file from %u to %u bytes (%u to %u blocks)\n", 
+           entry->size, new_size, old_blocks, new_blocks);
+    
+    if (new_blocks == old_blocks) {
+        entry->size = new_size;
+        entry->mtime = time(NULL);
+        return 0;
+    }
+    
     if (new_blocks > old_blocks) {
-        uint32_t required_space = entry->data_offset + (new_blocks * BLOCK_SIZE);
-        if (required_space > FS_SIZE) {
-            return -ENOSPC;
-        }
+        // نیاز به بلوک‌های بیشتر
+        uint32_t additional_blocks = new_blocks - old_blocks;
+        uint32_t start_block;
         
-        if (required_space > state->superblock->last_used_byte) {
-            state->superblock->last_used_byte = required_space;
+        // سعی می‌کنیم بلوک‌های مجاور اختصاص دهیم
+        if (fs_alloc_blocks(additional_blocks, state, &start_block) < 0) {
+            // اگر موفق نشدیم، کل فضای جدید را اختصاص می‌دهیم
+            if (fs_alloc_blocks(new_blocks, state, &start_block) < 0) {
+                return -ENOSPC;
+            }
+            
+            // بلوک‌های قدیمی را آزاد می‌کنیم
+            if (old_blocks > 0) {
+                uint32_t old_start_block = entry->data_offset / BLOCK_SIZE;
+                fs_free_blocks(old_start_block, old_blocks, state);
+            }
+            
+            entry->data_offset = start_block * BLOCK_SIZE;
+        } else {
+            // اگر بلوک‌های اختصاص داده شده مجاور نباشند، نیاز به جابجایی داده داریم
+            uint32_t new_start_block = start_block;
+            if (new_start_block != (entry->data_offset / BLOCK_SIZE) + old_blocks) {
+                // نیاز به کپی داده
+                char *old_data = (char *)state->data + entry->data_offset;
+                char *new_data = (char *)state->data + (new_start_block * BLOCK_SIZE);
+                
+                // کپی داده قدیمی
+                memcpy(new_data, old_data, entry->size);
+                
+                // آزادسازی بلوک‌های قدیمی
+                uint32_t old_start_block = entry->data_offset / BLOCK_SIZE;
+                fs_free_blocks(old_start_block, old_blocks, state);
+                
+                entry->data_offset = new_start_block * BLOCK_SIZE;
+            }
         }
+    } else {
+        // آزادسازی بلوک‌های اضافی
+        uint32_t blocks_to_free = old_blocks - new_blocks;
+        uint32_t start_block_to_free = (entry->data_offset / BLOCK_SIZE) + new_blocks;
+        
+        fs_free_blocks(start_block_to_free, blocks_to_free, state);
     }
     
     entry->size = new_size;
@@ -245,6 +302,12 @@ int fs_unlink(const char *path) {
                 return -EISDIR;
             }
             
+            // آزادسازی بلوک‌های فایل
+            if (table[i].data_blocks > 0) {
+                uint32_t start_block = table[i].data_offset / BLOCK_SIZE;
+                fs_free_blocks(start_block, table[i].data_blocks, state);
+            }
+            
             memmove(&table[i], &table[i + 1], (count - i - 1) * sizeof(file_entry_t));
             state->superblock->file_count--;
             
@@ -264,6 +327,8 @@ int fs_rmdir(const char *path) {
     file_entry_t *table = state->file_table;
     uint32_t count = state->superblock->file_count;
     
+    // بررسی می‌کنیم که دایرکتوری خالی باشد
+    // (در نسخه ساده، همه فایل‌ها در ریشه هستند)
     for (uint32_t i = 0; i < count; i++) {
         if (strcmp(table[i].name, dirname) == 0 && table[i].type == 1) {
             memmove(&table[i], &table[i + 1], (count - i - 1) * sizeof(file_entry_t));

@@ -16,10 +16,11 @@
 #include <time.h>
 
 #define MAGIC_NUMBER 0x4D4F4445  // "MODE" در هگز
-#define VERSION 1
+#define VERSION 2  // نسخه را افزایش می‌دهیم
 #define BLOCK_SIZE 4096
 #define MAX_FILENAME 256
 #define MAX_FILES 1000
+#define MAX_FREE_BLOCKS 100  // حداکثر تعداد بلوک‌های خالی در freelist
 #define FS_SIZE (100 * 1024 * 1024) // 100MB
 
 // ساختار سوپر بلاک
@@ -28,8 +29,8 @@ typedef struct {
     uint32_t version;
     uint32_t last_used_byte;
     uint32_t file_count;
-    uint32_t free_blocks;
-    uint8_t padding[BLOCK_SIZE - 20];
+    uint32_t free_block_count;  // تعداد بلوک‌های خالی در freelist
+    uint8_t padding[BLOCK_SIZE - 24];
 } superblock_t;
 
 // ساختار entry فایل
@@ -48,6 +49,13 @@ typedef struct {
     uint8_t padding[BLOCK_SIZE - (MAX_FILENAME + 40)];
 } file_entry_t;
 
+// ساختار بلوک خالی در لیست پیوندی
+typedef struct free_block {
+    uint32_t start_block;    // شماره بلوک شروع
+    uint32_t block_count;    // تعداد بلوک‌های متوالی خالی
+    struct free_block *next; // اشاره‌گر به بلوک خالی بعدی
+} free_block_t;
+
 // ساختار state برای FUSE
 struct fs_state {
     char *disk_file;
@@ -55,6 +63,7 @@ struct fs_state {
     void *data;
     superblock_t *superblock;
     file_entry_t *file_table;
+    free_block_t *free_list;  // لیست پیوندی بلوک‌های خالی
 };
 
 // توابع مدیریت دیسک
@@ -66,6 +75,12 @@ void fs_disk_close(struct fs_state *state);
 file_entry_t *fs_find_file(const char *path, struct fs_state *state);
 int fs_create_file(const char *path, mode_t mode, uint32_t type, struct fs_state *state);
 int fs_resize_file(file_entry_t *entry, uint32_t new_size, struct fs_state *state);
+
+// توابع مدیریت بلوک‌های خالی
+int fs_alloc_blocks(uint32_t block_count, struct fs_state *state, uint32_t *start_block);
+int fs_free_blocks(uint32_t start_block, uint32_t block_count, struct fs_state *state);
+void fs_print_free_list(struct fs_state *state);
+void fs_visualize_free_space(struct fs_state *state);
 
 // توابع FUSE
 int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi);

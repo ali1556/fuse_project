@@ -70,15 +70,19 @@ int fs_disk_init(const char *disk_file, struct fs_state *state) {
     state->superblock->version = VERSION;
     state->superblock->last_used_byte = sizeof(superblock_t) + (sizeof(file_entry_t) * MAX_FILES);
     state->superblock->file_count = 0;
-    state->superblock->free_blocks = (FS_SIZE - state->superblock->last_used_byte) / BLOCK_SIZE;
+    state->superblock->free_block_count = 0;
     
     state->file_table = (file_entry_t *)((char *)state->data + sizeof(superblock_t));
     printf("DEBUG: File table at %p\n", state->file_table);
     
     memset(state->file_table, 0, sizeof(file_entry_t) * MAX_FILES);
     
+    // مقداردهی اولیه لیست بلوک‌های خالی
+    state->free_list = NULL;
+    fs_init_free_list(state);
+    
     printf("General FS initialized successfully\n");
-    printf("Total space: %d MB, Free blocks: %u\n", FS_SIZE / (1024 * 1024), state->superblock->free_blocks);
+    fs_print_free_list(state);
     return 0;
 }
 
@@ -111,16 +115,43 @@ int fs_disk_open(const char *disk_file, struct fs_state *state) {
         return -1;
     }
     
+    if (state->superblock->version != VERSION) {
+        fprintf(stderr, "Version mismatch: expected %u, got %u\n", 
+                VERSION, state->superblock->version);
+        munmap(state->data, FS_SIZE);
+        close(state->fd);
+        return -1;
+    }
+    
     state->file_table = (file_entry_t *)((char *)state->data + sizeof(superblock_t));
     printf("DEBUG: File table at %p\n", state->file_table);
     
+    // بازسازی لیست بلوک‌های خالی از دیسک
+    // در نسخه فعلی، لیست بلوک‌های خالی در حافظه اصلی نگهداری می‌شود
+    // در نسخه‌های بعدی می‌توان آن را روی دیسک هم ذخیره کرد
+    state->free_list = NULL;
+    fs_init_free_list(state);
+    
     printf("General FS mounted successfully\n");
-    printf("Files: %u, Free blocks: %u\n", state->superblock->file_count, state->superblock->free_blocks);
+    printf("Files: %u\n", state->superblock->file_count);
+    fs_print_free_list(state);
     return 0;
 }
 
 void fs_disk_close(struct fs_state *state) {
     printf("DEBUG: Closing disk...\n");
+    
+    // آزادسازی حافظه لیست بلوک‌های خالی
+    if (state->free_list) {
+        free_block_t *current = state->free_list;
+        while (current) {
+            free_block_t *next = current->next;
+            free(current);
+            current = next;
+        }
+        state->free_list = NULL;
+        printf("DEBUG: Free list memory freed\n");
+    }
     
     if (state->data != NULL) {
         munmap(state->data, FS_SIZE);
@@ -141,6 +172,7 @@ int main(int argc, char *argv[]) {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <disk_file> <mount_point> [FUSE options]\n", argv[0]);
         fprintf(stderr, "Example: %s my_disk.bin /mnt/my_fs -f\n", argv[0]);
+        fprintf(stderr, "Additional commands after unmount: viz - visualize free space\n");
         return 1;
     }
     
@@ -191,8 +223,14 @@ int main(int argc, char *argv[]) {
     int ret = fuse_main(fuse_argc, fuse_argv, &fs_oper, NULL);
     
     printf("DEBUG: FUSE main returned: %d\n", ret);
-    fs_disk_close(fs_global_state);
-    free(fs_global_state);
+    
+    // پس از جدا کردن فایل سیستم، فضای خالی را نمایش می‌دهیم
+    if (fs_global_state) {
+        printf("\n=== Final Disk State ===\n");
+        fs_visualize_free_space(fs_global_state);
+        fs_disk_close(fs_global_state);
+        free(fs_global_state);
+    }
     
     return ret;
 }
