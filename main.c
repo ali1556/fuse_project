@@ -21,6 +21,31 @@ void signal_handler(int sig) {
     exit(1);
 }
 
+// تابع برای مقداردهی اولیه کاربران و گروه‌ها
+void fs_init_users_groups(struct fs_state *state) {
+    if (!state) return;
+    
+    // ایجاد کاربر root
+    user_entry_t *root = &state->user_table[0];
+    strcpy(root->username, "root");
+    root->uid = 0;
+    root->gid = 0;
+    root->gids[0] = 0;
+    root->gid_count = 1;
+    root->is_root = 1;
+    
+    // ایجاد گروه root
+    group_entry_t *root_group = &state->group_table[0];
+    strcpy(root_group->groupname, "root");
+    root_group->gid = 0;
+    root_group->members[0] = 0;  // کاربر root
+    root_group->member_count = 1;
+    
+    state->superblock->user_count = 1;
+    state->superblock->group_count = 1;
+    
+    printf("Initialized users/groups: root user and group created\n");
+}
 
 // عملیات‌های FUSE
 static struct fuse_operations fs_oper = {
@@ -35,6 +60,7 @@ static struct fuse_operations fs_oper = {
     .utimens    = fs_utimens,
     .mkdir      = fs_mkdir,
     .rmdir      = fs_rmdir,
+    .access     = fs_access,
 };
 
 // مقداردهی اولیه دیسک
@@ -68,18 +94,41 @@ int fs_disk_init(const char *disk_file, struct fs_state *state) {
     
     state->superblock->magic = MAGIC_NUMBER;
     state->superblock->version = VERSION;
-    state->superblock->last_used_byte = sizeof(superblock_t) + (sizeof(file_entry_t) * MAX_FILES);
+    state->superblock->last_used_byte = sizeof(superblock_t) + 
+                                       (sizeof(user_entry_t) * MAX_USERS) +
+                                       (sizeof(group_entry_t) * MAX_GROUPS) +
+                                       (sizeof(file_entry_t) * MAX_FILES);
     state->superblock->file_count = 0;
+    state->superblock->user_count = 0;
+    state->superblock->group_count = 0;
     state->superblock->free_block_count = 0;
     
-    state->file_table = (file_entry_t *)((char *)state->data + sizeof(superblock_t));
+    // محاسبه آدرس جداول
+    state->user_table = (user_entry_t *)((char *)state->data + sizeof(superblock_t));
+    state->group_table = (group_entry_t *)((char *)state->data + sizeof(superblock_t) + 
+                                          (sizeof(user_entry_t) * MAX_USERS));
+    state->file_table = (file_entry_t *)((char *)state->data + sizeof(superblock_t) + 
+                                        (sizeof(user_entry_t) * MAX_USERS) +
+                                        (sizeof(group_entry_t) * MAX_GROUPS));
+    
+    printf("DEBUG: User table at %p\n", state->user_table);
+    printf("DEBUG: Group table at %p\n", state->group_table);
     printf("DEBUG: File table at %p\n", state->file_table);
     
+    // صفر کردن حافظه
+    memset(state->user_table, 0, sizeof(user_entry_t) * MAX_USERS);
+    memset(state->group_table, 0, sizeof(group_entry_t) * MAX_GROUPS);
     memset(state->file_table, 0, sizeof(file_entry_t) * MAX_FILES);
     
     // مقداردهی اولیه لیست بلوک‌های خالی
     state->free_list = NULL;
     fs_init_free_list(state);
+    
+    // مقداردهی اولیه کاربران و گروه‌ها
+    fs_init_users_groups(state);
+    
+    // مقداردهی اولیه ACLها
+    state->file_acls = calloc(MAX_FILES, sizeof(acl_entry_t *));
     
     printf("General FS initialized successfully\n");
     fs_print_free_list(state);
@@ -123,17 +172,30 @@ int fs_disk_open(const char *disk_file, struct fs_state *state) {
         return -1;
     }
     
-    state->file_table = (file_entry_t *)((char *)state->data + sizeof(superblock_t));
+    // محاسبه آدرس جداول
+    state->user_table = (user_entry_t *)((char *)state->data + sizeof(superblock_t));
+    state->group_table = (group_entry_t *)((char *)state->data + sizeof(superblock_t) + 
+                                          (sizeof(user_entry_t) * MAX_USERS));
+    state->file_table = (file_entry_t *)((char *)state->data + sizeof(superblock_t) + 
+                                        (sizeof(user_entry_t) * MAX_USERS) +
+                                        (sizeof(group_entry_t) * MAX_GROUPS));
+    
+    printf("DEBUG: User table at %p\n", state->user_table);
+    printf("DEBUG: Group table at %p\n", state->group_table);
     printf("DEBUG: File table at %p\n", state->file_table);
     
     // بازسازی لیست بلوک‌های خالی از دیسک
-    // در نسخه فعلی، لیست بلوک‌های خالی در حافظه اصلی نگهداری می‌شود
-    // در نسخه‌های بعدی می‌توان آن را روی دیسک هم ذخیره کرد
     state->free_list = NULL;
     fs_init_free_list(state);
     
+    // مقداردهی اولیه ACLها
+    state->file_acls = calloc(MAX_FILES, sizeof(acl_entry_t *));
+    
     printf("General FS mounted successfully\n");
-    printf("Files: %u\n", state->superblock->file_count);
+    printf("Files: %u, Users: %u, Groups: %u\n", 
+           state->superblock->file_count,
+           state->superblock->user_count,
+           state->superblock->group_count);
     fs_print_free_list(state);
     return 0;
 }
@@ -151,6 +213,20 @@ void fs_disk_close(struct fs_state *state) {
         }
         state->free_list = NULL;
         printf("DEBUG: Free list memory freed\n");
+    }
+    
+    // آزادسازی حافظه ACLها
+    if (state->file_acls) {
+        for (uint32_t i = 0; i < MAX_FILES; i++) {
+            acl_entry_t *current = state->file_acls[i];
+            while (current) {
+                acl_entry_t *next = current->next;
+                free(current);
+                current = next;
+            }
+        }
+        free(state->file_acls);
+        printf("DEBUG: ACL memory freed\n");
     }
     
     if (state->data != NULL) {
@@ -172,7 +248,12 @@ int main(int argc, char *argv[]) {
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <disk_file> <mount_point> [FUSE options]\n", argv[0]);
         fprintf(stderr, "Example: %s my_disk.bin /mnt/my_fs -f\n", argv[0]);
-        fprintf(stderr, "Additional commands after unmount: viz - visualize free space\n");
+        fprintf(stderr, "\nAdditional commands after unmount:\n");
+        fprintf(stderr, "  viz - visualize free space\n");
+        fprintf(stderr, "  useradd <username> - add new user\n");
+        fprintf(stderr, "  userdel <username> - delete user\n");
+        fprintf(stderr, "  groupadd <groupname> - add new group\n");
+        fprintf(stderr, "  groupdel <groupname> - delete group\n");
         return 1;
     }
     
@@ -219,6 +300,7 @@ int main(int argc, char *argv[]) {
     printf("Starting General FUSE filesystem...\n");
     printf("Disk file: %s\n", fs_global_state->disk_file);
     printf("Mount point: %s\n", argv[2]);
+    printf("Version: %u with user/group support\n", VERSION);
     
     int ret = fuse_main(fuse_argc, fuse_argv, &fs_oper, NULL);
     

@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -D_FILE_OFFSET_BITS=64 -g -DFUSE_USE_VERSION=31
 LIBS = -lfuse3
 TARGET = general_fs
-OBJS = main.o fs_operations.o free_list.o
+OBJS = main.o fs_operations.o free_list.o user_manager.o permission_manager.o cli_commands.o
 
 all: $(TARGET)
 
@@ -17,6 +17,15 @@ fs_operations.o: fs_operations.c general_fs.h
 
 free_list.o: free_list.c general_fs.h
 	$(CC) $(CFLAGS) -c free_list.c
+
+user_manager.o: user_manager.c general_fs.h
+	$(CC) $(CFLAGS) -c user_manager.c
+
+permission_manager.o: permission_manager.c general_fs.h
+	$(CC) $(CFLAGS) -c permission_manager.c
+
+cli_commands.o: cli_commands.c general_fs.h
+	$(CC) $(CFLAGS) -c cli_commands.c
 
 clean:
 	rm -f $(TARGET) $(OBJS) *.bin *.log
