@@ -1,6 +1,17 @@
 #ifndef GENERAL_FS_H
 #define GENERAL_FS_H
 
+#ifdef TRACY_ENABLE
+#include "../tracy/public/tracy/TracyC.h"
+#else
+#define TracyCZone(ctx, active)
+#define TracyCZoneEnd(ctx)
+#define TracyCZoneN(ctx, name, active)
+#define TracyCZoneText(ctx, text, size)
+#define TracyCFrameMark
+#define TracyCPlot(name, val)
+#endif
+
 #define FUSE_USE_VERSION 31
 #include <fuse3/fuse.h>
 #include <stdint.h>
@@ -17,7 +28,7 @@
 #include <grp.h>
 
 #define MAGIC_NUMBER 0x4D4F4445  // "MODE" در هگز
-#define VERSION 3  // نسخه رو افزایش می‌دیم
+#define VERSION 4  // نسخه افزایش یافت به دلیل bitmap freelist
 #define BLOCK_SIZE 4096
 #define MAX_FILENAME 256
 #define MAX_FILES 1000
@@ -25,9 +36,40 @@
 #define MAX_GROUPS 50
 #define MAX_USERNAME 32
 #define MAX_GROUPNAME 32
-#define MAX_FREE_BLOCKS 100
 #define FS_SIZE (100 * 1024 * 1024) // 100MB
 
+// ثابت‌های مربوط به bitmap
+#define TOTAL_BLOCKS (FS_SIZE / BLOCK_SIZE)          // 25600 بلوک
+#define BITMAP_SIZE ((TOTAL_BLOCKS + 7) / 8)         // اندازه بایت bitmap
+#define BITMAP_BLOCKS ((BITMAP_SIZE + BLOCK_SIZE - 1) / BLOCK_SIZE) // بلوک‌های مورد نیاز
+#define METADATA_BLOCK 0                             // بلوک metadata
+#define BITMAP_BLOCK 1                               // بلوک bitmap
+
+
+static inline void bitmap_set_bit(uint8_t *bitmap, uint32_t bit) {
+    bitmap[bit / 8] |= (1 << (bit % 8));
+}
+
+static inline void bitmap_clear_bit(uint8_t *bitmap, uint32_t bit) {
+    bitmap[bit / 8] &= ~(1 << (bit % 8));
+}
+
+static inline int bitmap_test_bit(uint8_t *bitmap, uint32_t bit) {
+    return (bitmap[bit / 8] >> (bit % 8)) & 1;
+}
+
+// تابع برای پیدا کردن دنباله‌ای از بلوک‌های خالی
+int bitmap_find_free_blocks(uint8_t *bitmap, uint32_t total_blocks, 
+                           uint32_t needed_blocks, uint32_t *start_block);
+
+// توابع جدید برای تحلیل
+int fs_check_bitmap_integrity(struct fs_state *state);
+void fs_analyze_fragmentation(struct fs_state *state);
+
+// توابع استرس تست
+int fs_stress_test_create_files(struct fs_state *state, int num_files);
+int fs_stress_test_random_operations(struct fs_state *state, int num_operations);
+void stress_test(struct fs_state *state);
 // ساختار سوپر بلاک
 typedef struct {
     uint32_t magic;
@@ -36,8 +78,10 @@ typedef struct {
     uint32_t file_count;
     uint32_t user_count;
     uint32_t group_count;
-    uint32_t free_block_count;
-    uint8_t padding[BLOCK_SIZE - 28];
+    uint32_t free_blocks_count;    // تعداد کل بلوک‌های آزاد
+    uint32_t bitmap_block;         // بلوک شروع bitmap
+    uint32_t first_data_block;     // اولین بلوک داده
+    uint8_t padding[BLOCK_SIZE - 36];
 } superblock_t;
 
 // ساختار کاربر
@@ -66,30 +110,15 @@ typedef struct {
     uint32_t type;          // 0: file, 1: directory
     uint32_t permissions;   // مجوزهای دسترسی
     uint32_t size;
-    uint32_t data_offset;
-    uint32_t data_blocks;
+    uint32_t data_offset;   // آفست در بایت
+    uint32_t data_blocks;   // تعداد بلوک‌های اختصاص داده شده
     uint32_t uid;           // User ID مالک
     uint32_t gid;           // Group ID مالک
     uint32_t atime;
     uint32_t mtime;
     uint32_t ctime;
-    uint8_t padding[BLOCK_SIZE - (MAX_FILENAME + 44)];
+    uint8_t padding[BLOCK_SIZE - (MAX_FILENAME + 48)];
 } file_entry_t;
-
-// ساختار ACL برای دسترسی‌های پیشرفته
-typedef struct acl_entry {
-    uint32_t uid_or_gid;    // UID یا GID
-    uint8_t is_group;       // 0 = user, 1 = group
-    uint16_t permissions;   // مجوزهای خاص
-    struct acl_entry *next;
-} acl_entry_t;
-
-// ساختار بلوک خالی در لیست پیوندی
-typedef struct free_block {
-    uint32_t start_block;
-    uint32_t block_count;
-    struct free_block *next;
-} free_block_t;
 
 // ساختار state برای FUSE
 struct fs_state {
@@ -100,8 +129,8 @@ struct fs_state {
     file_entry_t *file_table;
     user_entry_t *user_table;
     group_entry_t *group_table;
-    free_block_t *free_list;
-    acl_entry_t **file_acls;  // لیست ACL برای هر فایل
+    uint8_t *bitmap;        // بیت‌مپ مدیریت بلوک‌ها
+    uint32_t bitmap_size;   // اندازه بایت بیت‌مپ
 };
 
 // توابع مدیریت دیسک
@@ -132,15 +161,37 @@ int fs_chown(const char *path, uint32_t uid, uint32_t gid, struct fs_state *stat
 int fs_chgrp(const char *path, uint32_t gid, struct fs_state *state);
 void fs_print_acl(const char *path, struct fs_state *state);
 
-// توابع مدیریت بلوک‌های خالی
+// توابع مدیریت بلوک‌ها با bitmap
 int fs_alloc_blocks(uint32_t block_count, struct fs_state *state, uint32_t *start_block);
 int fs_free_blocks(uint32_t start_block, uint32_t block_count, struct fs_state *state);
-void fs_print_free_list(struct fs_state *state);
+void fs_print_bitmap_info(struct fs_state *state);
 void fs_visualize_free_space(struct fs_state *state);
+
+// توابع جدید برای تست‌های استرس
+void stress_test(struct fs_state *state);
+int fs_stress_test_create_files(struct fs_state *state, int num_files);
+int fs_stress_test_random_operations(struct fs_state *state, int num_operations);
 
 // توابع کمکی
 struct fs_state *get_fs_state(void);
-void fs_init_free_list(struct fs_state *state);
+void fs_init_bitmap(struct fs_state *state);
+
+// توابع bitmap کمکی
+static inline void bitmap_set_bit(uint8_t *bitmap, uint32_t bit) {
+    bitmap[bit / 8] |= (1 << (bit % 8));
+}
+
+static inline void bitmap_clear_bit(uint8_t *bitmap, uint32_t bit) {
+    bitmap[bit / 8] &= ~(1 << (bit % 8));
+}
+
+static inline int bitmap_test_bit(uint8_t *bitmap, uint32_t bit) {
+    return (bitmap[bit / 8] >> (bit % 8)) & 1;
+}
+
+// تابع برای پیدا کردن دنباله‌ای از بلوک‌های خالی
+int bitmap_find_free_blocks(uint8_t *bitmap, uint32_t total_blocks, 
+                           uint32_t needed_blocks, uint32_t *start_block);
 
 // توابع FUSE
 int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi);

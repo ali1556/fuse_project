@@ -199,36 +199,44 @@ int fs_resize_file(file_entry_t *entry, uint32_t new_size, struct fs_state *stat
         uint32_t start_block;
         
         // سعی می‌کنیم بلوک‌های مجاور اختصاص دهیم
-        if (fs_alloc_blocks(additional_blocks, state, &start_block) < 0) {
-            // اگر موفق نشدیم، کل فضای جدید را اختصاص می‌دهیم
+        uint32_t desired_start = (entry->data_offset / BLOCK_SIZE) + old_blocks;
+        uint32_t consecutive_free = 0;
+        
+        // بررسی اگر بلوک‌های بعدی آزاد هستند
+        for (uint32_t i = 0; i < additional_blocks; i++) {
+            uint32_t block = desired_start + i;
+            if (block < TOTAL_BLOCKS && !bitmap_test_bit(state->bitmap, block)) {
+                consecutive_free++;
+            } else {
+                break;
+            }
+        }
+        
+        if (consecutive_free == additional_blocks) {
+            // همه بلوک‌های مورد نیاز مجاور و آزاد هستند
+            start_block = desired_start;
+            for (uint32_t i = 0; i < additional_blocks; i++) {
+                bitmap_set_bit(state->bitmap, start_block + i);
+            }
+            state->superblock->free_blocks_count -= additional_blocks;
+        } else {
+            // نیاز به تخصیص جدید داریم
             if (fs_alloc_blocks(new_blocks, state, &start_block) < 0) {
                 return -ENOSPC;
             }
             
-            // بلوک‌های قدیمی را آزاد می‌کنیم
+            // کپی داده‌های قدیمی
             if (old_blocks > 0) {
-                uint32_t old_start_block = entry->data_offset / BLOCK_SIZE;
-                fs_free_blocks(old_start_block, old_blocks, state);
-            }
-            
-            entry->data_offset = start_block * BLOCK_SIZE;
-        } else {
-            // اگر بلوک‌های اختصاص داده شده مجاور نباشند، نیاز به جابجایی داده داریم
-            uint32_t new_start_block = start_block;
-            if (new_start_block != (entry->data_offset / BLOCK_SIZE) + old_blocks) {
-                // نیاز به کپی داده
                 char *old_data = (char *)state->data + entry->data_offset;
-                char *new_data = (char *)state->data + (new_start_block * BLOCK_SIZE);
-                
-                // کپی داده قدیمی
+                char *new_data = (char *)state->data + (start_block * BLOCK_SIZE);
                 memcpy(new_data, old_data, entry->size);
                 
                 // آزادسازی بلوک‌های قدیمی
                 uint32_t old_start_block = entry->data_offset / BLOCK_SIZE;
                 fs_free_blocks(old_start_block, old_blocks, state);
-                
-                entry->data_offset = new_start_block * BLOCK_SIZE;
             }
+            
+            entry->data_offset = start_block * BLOCK_SIZE;
         }
     } else {
         // آزادسازی بلوک‌های اضافی
@@ -244,7 +252,6 @@ int fs_resize_file(file_entry_t *entry, uint32_t new_size, struct fs_state *stat
     
     return 0;
 }
-
 // ==================== توابع FUSE ====================
 
 int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi) {
